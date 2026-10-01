@@ -1,0 +1,50 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from "vite-plugin-pwa";
+
+// base "./" + HashRouter = funciona em qualquer subpasta (GitHub Pages, Vercel, etc.)
+export default defineConfig({
+  base: "./",
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["favicon.svg", "apple-touch-icon.png"],
+      manifest: {
+        name: "Vestí — seu closet digital",
+        short_name: "Vestí",
+        description: "Organize suas roupas e monte looks em segundos.",
+        lang: "pt-BR",
+        start_url: "./",
+        scope: "./",
+        display: "standalone",
+        orientation: "portrait",
+        background_color: "#FFFCF5",
+        theme_color: "#FFFCF5",
+        icons: [
+          { src: "icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png" },
+          { src: "icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
+      },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            // modelo de remoção de fundo: baixa uma vez, depois fica salvo no aparelho
+            urlPattern: /^https:\/\/staticimgly\.com\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "bg-removal-model",
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
+    }),
+  ],
+});
