@@ -6,6 +6,7 @@ import Board, { BOARD_RATIO } from "./Board";
 import { SAMPLES } from "./samples";
 import { SLOTS, SLOT_LAYOUT, categoryById } from "../lib/constants";
 import { loadImage } from "../lib/image";
+import { useFitWidth } from "../lib/useFitWidth";
 
 let seq = 0;
 const uid = () => `p${Date.now().toString(36)}${seq++}`;
@@ -30,6 +31,7 @@ export default function BoardLab() {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [dir, setDir] = useState({});
+  const [fitRef, fitW] = useFitWidth(BOARD_RATIO);
 
   // peças do closet de verdade (mesmo aparelho, mesmo navegador)
   useEffect(() => {
@@ -101,8 +103,8 @@ export default function BoardLab() {
   const sel = items.find((i) => i.id === selected);
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-10">
-      <div className="mb-3 grid grid-cols-2 gap-1 rounded-full bg-white p-1 text-sm ring-1 ring-line">
+    <div className="mx-auto flex max-w-md flex-col px-4 pb-3" style={{ height: "calc(100dvh - 76px - env(safe-area-inset-top))" }}>
+      <div className="mb-3 grid shrink-0 grid-cols-2 gap-1 rounded-full bg-white p-1 text-sm ring-1 ring-line">
         {[["samples", "Peças de exemplo"], ["mine", `Meu closet (${mine.length})`]].map(([id, label]) => (
           <button key={id} disabled={id === "mine" && !mine.length} onClick={() => setSource(id)}
             className={`rounded-full py-2 font-semibold disabled:opacity-40 ${source === id ? "bg-ink text-paper" : "text-ink-soft"}`}>
@@ -111,10 +113,14 @@ export default function BoardLab() {
         ))}
       </div>
 
-      <Board items={items} clothesById={clothesById} selectedId={selected} onSelect={setSelected} onChange={change} onRemove={remove} />
+      <div ref={fitRef} className="min-h-0 flex-1">
+        <div className="mx-auto" style={{ width: fitW || "100%" }}>
+          <Board items={items} clothesById={clothesById} selectedId={selected} onSelect={setSelected} onChange={change} onRemove={remove} />
+        </div>
+      </div>
 
       {/* barra da peça selecionada */}
-      <div className="mt-3 min-h-[52px]">
+      <div className="mt-2 h-[76px] shrink-0">
         <AnimatePresence mode="wait">
           {sel ? (
             <motion.div key="tools" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="grid grid-cols-4 gap-2">
@@ -137,7 +143,7 @@ export default function BoardLab() {
       </div>
 
       {/* bandeja: toque adiciona/seleciona, deslize troca a peça */}
-      <div className="mt-2 grid grid-cols-5 gap-2">
+      <div className="grid shrink-0 grid-cols-5 gap-2">
         {SLOTS.map((s) => {
           const it = itemOfSlot(s.id);
           const cloth = it && clothesById[it.clothId];
@@ -155,7 +161,7 @@ export default function BoardLab() {
                 }}
                 onTap={() => (it ? setSelected(it.id) : count && cycle(s.id, 1))}
                 aria-label={`${s.label}: ${cloth ? cloth.name : "vazio"}`}
-                className={`checker relative grid aspect-square w-full place-items-center overflow-hidden rounded-2xl ring-2 ${cloth ? (it.id === selected ? "ring-ink" : "ring-ink/40") : "ring-line"} ${count ? "" : "opacity-40"}`}
+                className={`checker relative grid aspect-square w-full max-w-[60px] place-items-center overflow-hidden rounded-2xl ring-2 ${cloth ? (it.id === selected ? "ring-ink" : "ring-ink/40") : "ring-line"} ${count ? "" : "opacity-40"}`}
               >
                 <AnimatePresence initial={false} custom={dir[s.id] || 1} mode="popLayout">
                   {cloth ? (
@@ -178,7 +184,7 @@ export default function BoardLab() {
           );
         })}
       </div>
-      <p className="mt-2 text-center text-xs text-ink-mute">Deslize a miniatura para o lado para trocar a peça</p>
+      <p className="mt-1.5 shrink-0 text-center text-xs text-ink-mute">Deslize a miniatura para o lado para trocar a peça</p>
     </div>
   );
 }
