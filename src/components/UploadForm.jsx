@@ -211,7 +211,7 @@ export default function UploadForm({ initial, onSave, onDelete }) {
       </div>
 
       {/* SALVAR */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-paper via-paper to-paper/0 px-5 pt-8 pb-5 pb-safe">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-paper via-paper to-paper/0 px-5 pt-8 pb-5 pb-safe [&>*]:pointer-events-auto">
         <motion.button
           whileTap={canSave ? { scale: 0.97 } : {}}
           onClick={submit}

@@ -183,8 +183,9 @@ export default function Creator() {
       </div>
 
       {/* bandeja de espaços + salvar, acima da barra de navegação */}
-      <div className="fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-30 bg-gradient-to-t from-paper via-paper/95 to-paper/0 pt-6">
-        <div className="mx-auto max-w-md px-4">
+      <div className="fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-30 pointer-events-none bg-gradient-to-t from-paper via-paper/95 to-paper/0 pt-6">
+        {/* só os botões recebem toque; o degradê não bloqueia o quadro */}
+        <div className="pointer-events-auto mx-auto max-w-md px-4">
           <div className="no-scrollbar flex gap-2 overflow-x-auto pb-3">
             {SLOTS.map((s) => {
               const it = items.find((i) => i.slot === s.id);

@@ -109,7 +109,7 @@ export default function Outfits() {
         )}
       </Sheet>
 
-      <TipPopup id="outfits" when={outfits.length > 0} />
+      <TipPopup id="outfits" when={outfits.length > 0 && !viewing} />
     </div>
   );
 }
