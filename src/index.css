@@ -54,3 +54,7 @@ button { cursor: pointer; }
   right: -9px !important; bottom: -9px !important;
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
 }
+
+/* tesoura da animação de espera percorrendo o contorno da peça */
+@keyframes scissors-run { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+.scissors-run { animation: scissors-run 3s linear infinite; }
