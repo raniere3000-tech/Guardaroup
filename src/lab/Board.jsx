@@ -170,7 +170,6 @@ export default function Board({ items, clothesById, selectedId, onSelect, onChan
         [...items].sort((a, b) => a.z - b.z).map((it) => {
           const c = clothesById[it.clothId];
           if (!c) return null;
-          const sel = it.id === selectedId;
           const w = it.s * W, h = w / (c.aspect || 1);
           return (
             <div
@@ -190,29 +189,40 @@ export default function Board({ items, clothesById, selectedId, onSelect, onChan
                 draggable={false}
                 className="pointer-events-none h-full w-full object-contain drop-shadow-[0_8px_12px_rgba(28,26,23,0.14)]"
               />
-              {sel && (
-                <>
-                  <span className="pointer-events-none absolute -inset-1.5 rounded-xl border-2 border-dashed border-ink/50" />
-                  <button
-                    type="button"
-                    aria-label="Tirar peça do look"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemove(it.id);
-                    }}
-                    className="absolute -left-[22px] -top-[22px] grid size-11 place-items-center"
-                    style={{ transform: `rotate(${-it.r}deg)` }}
-                  >
-                    <span className="grid size-8 place-items-center rounded-full bg-ink text-paper shadow-lg ring-[3px] ring-paper">
-                      <X size={16} strokeWidth={3} />
-                    </span>
-                  </button>
-                </>
-              )}
             </div>
           );
         })}
+
+      {/* contorno + X sempre por cima de todas as peças, mesmo se a selecionada estiver atrás */}
+      {W > 0 && (() => {
+        const it = items.find((i) => i.id === selectedId);
+        const c = it && clothesById[it.clothId];
+        if (!c) return null;
+        const w = it.s * W, h = w / (c.aspect || 1);
+        return (
+          <div
+            className="pointer-events-none absolute"
+            style={{ left: it.x * W, top: it.y * H, width: w, height: h, transform: `translate(-50%, -50%) rotate(${it.r}deg)`, zIndex: 9999 }}
+          >
+            <span className="absolute -inset-1.5 rounded-xl border-2 border-dashed border-ink/50" />
+            <button
+              type="button"
+              aria-label="Tirar peça do look"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(it.id);
+              }}
+              className="pointer-events-auto absolute -left-[22px] -top-[22px] grid size-11 place-items-center"
+              style={{ transform: `rotate(${-it.r}deg)` }}
+            >
+              <span className="grid size-8 place-items-center rounded-full bg-ink text-paper shadow-lg ring-[3px] ring-paper">
+                <X size={16} strokeWidth={3} />
+              </span>
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

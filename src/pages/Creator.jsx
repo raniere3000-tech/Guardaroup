@@ -13,6 +13,7 @@ import ClothingCard from "../components/ClothingCard";
 import { CATEGORIES, SLOTS, SLOT_LAYOUT, categoryById } from "../lib/constants";
 import { loadImage, renderLook } from "../lib/image";
 import { suggestLook, mainKey } from "../lib/suggest";
+import { useFitWidth } from "../lib/useFitWidth";
 
 const aspectCache = new Map();
 async function aspectOf(cloth) {
@@ -51,6 +52,7 @@ export default function Creator() {
   const [newCat, setNewCat] = useState("");
   const [saving, setSaving] = useState(false);
   const boardRef = useRef();
+  const [fitRef, fitW] = useFitWidth(BOARD_RATIO);
   const recent = useRef([]);
   const [shuffleKey, setShuffleKey] = useState(0);
 
@@ -164,7 +166,8 @@ export default function Creator() {
   const pickerCats = pickerSlot ? CATEGORIES.filter((c) => c.slot === picker).map((c) => c.label.toLowerCase()).join(", ") : "";
 
   return (
-    <div className="pb-48">
+    // altura da tela menos a barra de navegação: o quadro se ajusta ao espaço que sobra
+    <div className="flex flex-col" style={{ height: "calc(100dvh - 68px - env(safe-area-inset-bottom))" }}>
       <PageHeader
         title={editing ? "Editar look" : "Criar look"}
         back={Boolean(editing)}
@@ -180,52 +183,52 @@ export default function Creator() {
         }
       />
 
-      <div className="mx-auto max-w-md px-5">
-        <OutfitCanvas key={shuffleKey} items={items} clothesById={clothesById} selectedId={selected} onSelect={select} onChange={change} onRemove={removeSlot} boardRef={boardRef} />
+      <div ref={fitRef} className="min-h-0 flex-1 px-4">
+        <div className="mx-auto" style={{ width: fitW || "100%" }}>
+          <OutfitCanvas key={shuffleKey} items={items} clothesById={clothesById} selectedId={selected} onSelect={select} onChange={change} onRemove={removeSlot} boardRef={boardRef} />
+        </div>
+      </div>
+
+      <div className="flex h-14 shrink-0 items-center justify-center px-4">
         {items.length === 0 ? (
-          <p className="mt-3 text-center text-sm text-ink-mute">Escolha as peças aqui embaixo ou toque em <b>Sortear</b> 🎲</p>
+          <p className="text-center text-sm text-ink-mute">Escolha as peças aqui embaixo ou toque em <b>Sortear</b> 🎲</p>
+        ) : selected && items.some((i) => i.slot === selected) ? (
+          <div className="flex justify-center gap-2">
+            <button onClick={() => removeSlot(selected)} className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-red-600 ring-1 ring-line active:scale-95">
+              <Trash2 size={16} /> Remover peça
+            </button>
+            <button onClick={() => setSelected(null)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold ring-1 ring-line active:scale-95">
+              Pronto
+            </button>
+          </div>
         ) : (
-          selected && items.some((i) => i.slot === selected) ? (
-            <div className="mt-3 flex justify-center gap-2">
-              <button onClick={() => removeSlot(selected)} className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-red-600 ring-1 ring-line active:scale-95">
-                <Trash2 size={16} /> Remover peça
-              </button>
-              <button onClick={() => setSelected(null)} className="rounded-full bg-white px-4 py-2.5 text-sm font-semibold ring-1 ring-line active:scale-95">
-                Pronto
-              </button>
-            </div>
-          ) : (
-            <p className="mt-3 text-center text-sm text-ink-mute">Arraste as peças. Toque numa e puxe a bolinha pra mudar o tamanho.</p>
-          )
+          <p className="text-center text-xs text-ink-mute">Arraste as peças. Toque numa e puxe a bolinha pra mudar o tamanho.</p>
         )}
       </div>
 
-      {/* bandeja de espaços + salvar, acima da barra de navegação */}
-      <div className="fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-30 pointer-events-none bg-gradient-to-t from-paper via-paper/95 to-paper/0 pt-6">
-        {/* só os botões recebem toque; o degradê não bloqueia o quadro */}
-        <div className="pointer-events-auto mx-auto max-w-md px-4">
-          <div className="no-scrollbar flex gap-2 overflow-x-auto pb-3">
-            {SLOTS.map((s) => {
-              const it = items.find((i) => i.slot === s.id);
-              const cloth = it && clothesById[it.clothId];
-              const disabled = !bySlot[s.id]?.length;
-              const dim = (s.id === "full" && items.some((i) => i.slot === "top" || i.slot === "bottom")) || ((s.id === "top" || s.id === "bottom") && hasFull);
-              return (
-                <motion.button key={s.id} whileTap={{ scale: 0.94 }} onClick={() => setPicker(s.id)}
-                  className={`flex shrink-0 flex-col items-center gap-1 ${dim ? "opacity-50" : ""}`} aria-label={`Escolher ${s.label}`}>
-                  <span className={`checker grid size-[60px] place-items-center overflow-hidden rounded-2xl ring-2 ${cloth ? "ring-ink" : "ring-line"}`}>
-                    {cloth ? <img src={cloth.image} alt="" className="h-full w-full object-contain p-1" /> : <Plus size={20} className={disabled ? "text-ink-mute/50" : "text-ink-mute"} />}
-                  </span>
-                  <span className="text-[11px] font-semibold text-ink-soft">{s.short}</span>
-                </motion.button>
-              );
-            })}
-          </div>
-          <motion.button whileTap={items.length ? { scale: 0.97 } : {}} disabled={!items.length} onClick={() => setSaveOpen(true)}
-            className="mb-2 flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 font-semibold text-paper shadow-xl shadow-ink/15 disabled:bg-ink/25 disabled:shadow-none">
-            <Check size={19} strokeWidth={2.5} /> {editing ? "Salvar alterações" : "Salvar look"}
-          </motion.button>
+      {/* bandeja de espaços + salvar */}
+      <div className="mx-auto w-full max-w-md shrink-0 px-4 pb-3">
+        <div className="mb-3 grid grid-cols-5 gap-2">
+          {SLOTS.map((s) => {
+            const it = items.find((i) => i.slot === s.id);
+            const cloth = it && clothesById[it.clothId];
+            const disabled = !bySlot[s.id]?.length;
+            const dim = (s.id === "full" && items.some((i) => i.slot === "top" || i.slot === "bottom")) || ((s.id === "top" || s.id === "bottom") && hasFull);
+            return (
+              <motion.button key={s.id} whileTap={{ scale: 0.94 }} onClick={() => setPicker(s.id)}
+                className={`flex min-w-0 flex-col items-center gap-1 ${dim ? "opacity-50" : ""}`} aria-label={`Escolher ${s.label}`}>
+                <span className={`checker grid aspect-square w-full max-w-[60px] place-items-center overflow-hidden rounded-2xl ring-2 ${cloth ? "ring-ink" : "ring-line"}`}>
+                  {cloth ? <img src={cloth.image} alt="" className="h-full w-full object-contain p-1" /> : <Plus size={20} className={disabled ? "text-ink-mute/50" : "text-ink-mute"} />}
+                </span>
+                <span className="text-[11px] font-semibold text-ink-soft">{s.short}</span>
+              </motion.button>
+            );
+          })}
         </div>
+        <motion.button whileTap={items.length ? { scale: 0.97 } : {}} disabled={!items.length} onClick={() => setSaveOpen(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 font-semibold text-paper shadow-lg shadow-ink/15 disabled:bg-ink/25 disabled:shadow-none">
+          <Check size={19} strokeWidth={2.5} /> {editing ? "Salvar alterações" : "Salvar look"}
+        </motion.button>
       </div>
 
       {/* escolher peça de um espaço */}
