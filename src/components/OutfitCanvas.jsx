@@ -76,9 +76,15 @@ export default function OutfitCanvas({ items, clothesById, selectedId, onSelect,
                     onPointerDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
+                    onPointerUp={(e) => {
+                      // remove no "soltar o dedo": funciona mesmo se o navegador não gerar o clique
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onRemove(it.slot);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onRemove(it.slot);
+                      if (e.detail === 0) onRemove(it.slot); // teclado
                     }}
                     aria-label="Tirar peça do look"
                     className="no-drag absolute right-0 top-0 grid size-10 place-items-center rounded-full bg-ink text-paper shadow-lg ring-4 ring-paper/70"

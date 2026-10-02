@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Shuffle, Plus, Check, RotateCcw, Loader2 } from "lucide-react";
+import { Shuffle, Plus, Check, RotateCcw, Loader2, Trash2 } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useToast } from "../components/Toast";
 import PageHeader from "../components/PageHeader";
@@ -185,7 +185,18 @@ export default function Creator() {
         {items.length === 0 ? (
           <p className="mt-3 text-center text-sm text-ink-mute">Escolha as peças aqui embaixo ou toque em <b>Sortear</b> 🎲</p>
         ) : (
-          <p className="mt-3 text-center text-sm text-ink-mute">Arraste as peças. Toque numa e puxe a bolinha pra mudar o tamanho.</p>
+          selected && items.some((i) => i.slot === selected) ? (
+            <div className="mt-3 flex justify-center gap-2">
+              <button onClick={() => removeSlot(selected)} className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-red-600 ring-1 ring-line active:scale-95">
+                <Trash2 size={16} /> Remover peça
+              </button>
+              <button onClick={() => setSelected(null)} className="rounded-full bg-white px-4 py-2.5 text-sm font-semibold ring-1 ring-line active:scale-95">
+                Pronto
+              </button>
+            </div>
+          ) : (
+            <p className="mt-3 text-center text-sm text-ink-mute">Arraste as peças. Toque numa e puxe a bolinha pra mudar o tamanho.</p>
+          )
         )}
       </div>
 

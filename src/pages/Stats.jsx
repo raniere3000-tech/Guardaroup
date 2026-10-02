@@ -22,6 +22,17 @@ export default function Stats() {
     ["Usou foto sem fundo", bgTotal ? `${Math.round((stats.bgRemoved / bgTotal) * 100)}%` : "—"],
   ];
 
+  // apaga só o "cache" do app (as roupas ficam) e recarrega a versão mais nova
+  const forceUpdate = async () => {
+    try {
+      const regs = (await navigator.serviceWorker?.getRegistrations?.()) || [];
+      await Promise.all(regs.map((r) => r.unregister()));
+      const keys = (await caches?.keys?.()) || [];
+      await Promise.all(keys.filter((k) => !k.includes("bg-removal")).map((k) => caches.delete(k)));
+    } catch {}
+    location.reload();
+  };
+
   const text = `Vestí — meus números\n${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}`;
 
   return (
@@ -39,6 +50,8 @@ export default function Stats() {
         <button onClick={async () => { try { await navigator.clipboard.writeText(text); toast("Copiado! Cola no WhatsApp 😉"); } catch { toast("Não deu pra copiar", "error"); } }}
           className="mt-4 w-full rounded-full bg-ink py-3.5 font-semibold text-paper">Copiar números</button>
         {FEEDBACK_URL && <a href={FEEDBACK_URL} target="_blank" rel="noreferrer" className="mt-2 block w-full rounded-full bg-white py-3.5 text-center font-semibold ring-1 ring-line">Mandar feedback</a>}
+        <button onClick={forceUpdate} className="mt-2 w-full rounded-full bg-white py-3.5 font-semibold ring-1 ring-line">Buscar atualização do app</button>
+        <p className="mt-2 text-center text-xs text-ink-mute">Versão de {__BUILD__}</p>
         <div className="mt-8 grid grid-cols-2 gap-2 text-sm">
           <button onClick={() => { resetTips(); toast("As dicas vão aparecer de novo"); }} className="rounded-full py-3 font-semibold text-ink-soft ring-1 ring-line">Rever dicas</button>
           <button onClick={showWelcomeAgain} className="rounded-full py-3 font-semibold text-ink-soft ring-1 ring-line">Rever boas-vindas</button>

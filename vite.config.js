@@ -4,8 +4,11 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // base "./" + HashRouter = funciona em qualquer subpasta (GitHub Pages, Vercel, etc.)
+const BUILD = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+
 export default defineConfig({
   base: "./",
+  define: { __BUILD__: JSON.stringify(BUILD) },
   plugins: [
     react(),
     tailwindcss(),
