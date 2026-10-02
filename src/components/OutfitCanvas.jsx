@@ -49,6 +49,7 @@ export default function OutfitCanvas({ items, clothesById, selectedId, onSelect,
             <Rnd
               key={it.slot + it.clothId}
               bounds="parent"
+              cancel=".no-drag"
               lockAspectRatio
               size={{ width: it.w * W, height: it.h * H }}
               position={{ x: it.x * W, y: it.y * H }}
@@ -73,12 +74,14 @@ export default function OutfitCanvas({ items, clothesById, selectedId, onSelect,
                 {selected && (
                   <button
                     onPointerDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       onRemove(it.slot);
                     }}
                     aria-label="Tirar peça do look"
-                    className="absolute -right-3 -top-3 grid size-8 place-items-center rounded-full bg-ink text-paper shadow-lg"
+                    className="no-drag absolute right-0 top-0 grid size-10 place-items-center rounded-full bg-ink text-paper shadow-lg ring-4 ring-paper/70"
                   >
                     <X size={16} strokeWidth={3} />
                   </button>

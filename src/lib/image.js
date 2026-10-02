@@ -103,36 +103,224 @@ export async function finalizeImage(blob, { trim = true } = {}) {
   return { dataUrl: c.toDataURL(type, 0.92), width: w, height: h };
 }
 
-/** Desenha o look inteiro numa única imagem (para salvar, baixar e compartilhar). */
-export async function renderLook(items, clothesById, { width = 1080, ratio = 4 / 3, background = "#FFF8E8", watermark = true, type = "image/png", quality } = {}) {
+// ---------- desenho das peças ----------
+
+const opaqueCache = new Map();
+/** A peça ainda tem fundo? (cantos sem transparência) */
+function isOpaque(img, key) {
+  if (key && opaqueCache.has(key)) return opaqueCache.get(key);
+  const c = canvasFor(24, 24);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, 24, 24);
+  const d = ctx.getImageData(0, 0, 24, 24).data;
+  const corners = [0, 23, 24 * 23, 24 * 24 - 1].map((i) => d[i * 4 + 3]);
+  const res = corners.every((a) => a > 245);
+  if (key) opaqueCache.set(key, res);
+  return res;
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h);
+}
+
+/** Desenha uma peça: recortada ganha sombra suave; com fundo vira "foto" de cantos arredondados. */
+function drawPiece(ctx, img, key, x, y, w, h, scale = 1) {
+  const s = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+  const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+  const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+  if (isOpaque(img, key)) {
+    const r = Math.min(dw, dh) * 0.07;
+    const border = 10 * scale;
+    ctx.save();
+    ctx.shadowColor = "rgba(28,26,23,0.18)";
+    ctx.shadowBlur = 30 * scale;
+    ctx.shadowOffsetY = 12 * scale;
+    ctx.fillStyle = "#FFFFFF";
+    roundRectPath(ctx, dx - border, dy - border, dw + border * 2, dh + border * 2, r + border);
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    roundRectPath(ctx, dx, dy, dw, dh, r);
+    ctx.clip();
+    ctx.drawImage(img, dx, dy, dw, dh);
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.shadowColor = "rgba(28,26,23,0.16)";
+    ctx.shadowBlur = 26 * scale;
+    ctx.shadowOffsetY = 14 * scale;
+    ctx.drawImage(img, dx, dy, dw, dh);
+    ctx.restore();
+  }
+  return { x: dx, y: dy, w: dw, h: dh };
+}
+
+async function loadPieces(items, clothesById) {
+  const out = [];
+  for (const it of [...items].sort((a, b) => a.z - b.z)) {
+    const cloth = clothesById[it.clothId];
+    if (!cloth) continue;
+    out.push({ it, cloth, img: await loadImage(cloth.image) });
+  }
+  return out;
+}
+
+function output(c, type, quality) {
+  if (type === "dataUrl") return c.toDataURL(supportsWebp() ? "image/webp" : "image/png", quality ?? 0.85);
+  return toBlob(c, type, quality);
+}
+
+/** Miniatura do look, igual ao que aparece no quadro (usada na lista de looks). */
+export async function renderLook(items, clothesById, { width = 1080, ratio = 4 / 3, background = "#FFF8E8", type = "image/png", quality } = {}) {
   const height = Math.round(width * ratio);
   const c = canvasFor(width, height);
   const ctx = c.getContext("2d");
   ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
+  for (const { it, cloth, img } of await loadPieces(items, clothesById)) {
+    drawPiece(ctx, img, cloth.id, it.x * width, it.y * height, it.w * width, it.h * height, width / 1080);
+  }
+  return output(c, type, quality);
+}
 
-  const sorted = [...items].sort((a, b) => a.z - b.z);
-  for (const it of sorted) {
-    const cloth = clothesById[it.clothId];
-    if (!cloth) continue;
-    const img = await loadImage(cloth.image);
-    // a peça é desenhada "contida" na caixa, como na tela
-    const bw = it.w * width, bh = it.h * height;
+// ---------- cartão para compartilhar ----------
+
+export const SHARE_THEMES = [
+  { id: "creme", label: "Creme", bg: "#FFF1C9", blob: "#FFDFBC", ink: "#1C1A17", soft: "#7A6F5C", pill: "#FFFCF5" },
+  { id: "pessego", label: "Pêssego", bg: "#FFDFBC", blob: "#FFF1C9", ink: "#1C1A17", soft: "#7D6650", pill: "#FFF6EA" },
+  { id: "areia", label: "Areia", bg: "#E8DEAB", blob: "#FFFBBC", ink: "#1C1A17", soft: "#6C6644", pill: "#FFFCE8" },
+  { id: "papel", label: "Papel", bg: "#FFFCF5", blob: "#F4EBD8", ink: "#1C1A17", soft: "#8F887C", pill: "#F4EBD8" },
+  { id: "noite", label: "Noite", bg: "#1C1A17", blob: "#4A443C", ink: "#FFF1C9", soft: "#B7AD98", pill: "#3A3530", ring: "#B7AD98" },
+];
+
+async function ensureFonts() {
+  try {
+    await Promise.all([
+      document.fonts.load('600 80px "Fraunces Variable"'),
+      document.fonts.load('600 30px "Plus Jakarta Sans Variable"'),
+    ]);
+  } catch {}
+}
+
+function fitText(ctx, text, maxW, size, weight, family) {
+  let s = size;
+  do {
+    ctx.font = `${weight} ${s}px ${family}`;
+    if (ctx.measureText(text).width <= maxW) break;
+    s -= 2;
+  } while (s > 28);
+  return s;
+}
+
+/**
+ * Cartão 4:5 (formato do feed/stories) com o look organizado,
+ * nome, categoria e as cores das peças.
+ */
+export async function renderShareCard(outfit, clothesById, colorsById, { theme = "creme", width = 1080, type = "image/png", quality } = {}) {
+  const T = SHARE_THEMES.find((t) => t.id === theme) || SHARE_THEMES[0];
+  await ensureFonts();
+  const k = width / 1080;
+  const W = width, H = Math.round(width * 1.25);
+  const c = canvasFor(W, H);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  const serif = '"Fraunces Variable", Georgia, serif';
+  const sans = '"Plus Jakarta Sans Variable", system-ui, sans-serif';
+
+  // fundo + formas suaves
+  ctx.fillStyle = T.bg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = T.blob;
+  ctx.beginPath(); ctx.ellipse(W * 0.5, H * 0.44, W * 0.42, H * 0.36, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 0.6;
+  ctx.beginPath(); ctx.arc(W * 0.88, H * 0.1, 70 * k, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(W * 0.1, H * 0.74, 44 * k, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // topo
+  ctx.fillStyle = T.ink;
+  ctx.font = `600 ${46 * k}px ${serif}`;
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left";
+  ctx.fillText("Vestí", 72 * k, 108 * k);
+  const vw = ctx.measureText("Vestí").width;
+  ctx.fillStyle = "#E8D2AB";
+  ctx.beginPath(); ctx.arc(72 * k + vw + 10 * k, 100 * k, 7 * k, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = T.soft;
+  ctx.font = `600 ${24 * k}px ${sans}`;
+  ctx.textAlign = "right";
+  ctx.fillText("LOOK DO DIA", W - 72 * k, 100 * k);
+
+  // peças: reaproveita a montagem do usuário, sem os espaços vazios
+  const pieces = await loadPieces(outfit.items, clothesById);
+  const BW = 1000, BH = BW * (4 / 3);
+  const rects = pieces.map(({ it, img }) => {
+    const bw = it.w * BW, bh = it.h * BH;
     const s = Math.min(bw / img.naturalWidth, bh / img.naturalHeight);
     const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
-    const dx = it.x * width + (bw - dw) / 2;
-    const dy = it.y * height + (bh - dh) / 2;
-    ctx.drawImage(img, dx, dy, dw, dh);
+    return { x: it.x * BW + (bw - dw) / 2, y: it.y * BH + (bh - dh) / 2, w: dw, h: dh };
+  });
+  if (rects.length) {
+    const minX = Math.min(...rects.map((r) => r.x)), minY = Math.min(...rects.map((r) => r.y));
+    const maxX = Math.max(...rects.map((r) => r.x + r.w)), maxY = Math.max(...rects.map((r) => r.y + r.h));
+    const area = { x: 110 * k, y: 160 * k, w: W - 220 * k, h: H - 160 * k - 330 * k };
+    const s = Math.min(area.w / (maxX - minX), area.h / (maxY - minY));
+    const offX = area.x + (area.w - (maxX - minX) * s) / 2 - minX * s;
+    const offY = area.y + (area.h - (maxY - minY) * s) / 2 - minY * s;
+    pieces.forEach(({ cloth, img }, i) => {
+      const r = rects[i];
+      drawPiece(ctx, img, cloth.id, offX + r.x * s, offY + r.y * s, r.w * s, r.h * s, k);
+    });
   }
 
-  if (watermark) {
-    ctx.font = `600 ${Math.round(width * 0.032)}px "Fraunces Variable", Georgia, serif`;
-    ctx.fillStyle = "rgba(28,26,23,0.45)";
-    ctx.textAlign = "right";
-    ctx.fillText("Vestí", width - width * 0.04, height - width * 0.04);
+  // rodapé: nome, categoria e cores
+  const name = outfit.name || "Meu look";
+  ctx.textAlign = "left";
+  ctx.fillStyle = T.ink;
+  const size = fitText(ctx, name, W - 144 * k, 76 * k, 600, serif);
+  ctx.font = `600 ${size}px ${serif}`;
+  const nameY = H - 168 * k;
+  ctx.fillText(name, 72 * k, nameY);
+
+  let x = 72 * k;
+  const rowY = H - 92 * k;
+  if (outfit.category) {
+    ctx.font = `700 ${26 * k}px ${sans}`;
+    const tw = ctx.measureText(outfit.category).width;
+    ctx.fillStyle = T.pill;
+    roundRectPath(ctx, x, rowY - 24 * k, tw + 44 * k, 50 * k, 25 * k);
+    ctx.fill();
+    ctx.fillStyle = T.ink;
+    ctx.textBaseline = "middle";
+    ctx.fillText(outfit.category, x + 22 * k, rowY + 1 * k);
+    ctx.textBaseline = "alphabetic";
+    x += tw + 64 * k;
   }
-  return type === "dataUrl" ? c.toDataURL(supportsWebp() ? "image/webp" : "image/png", quality ?? 0.85) : toBlob(c, type, quality);
+  const seen = new Set();
+  for (const { cloth } of pieces) {
+    const col = colorsById(cloth.color);
+    if (!col || seen.has(col.id)) continue;
+    seen.add(col.id);
+    if (col.hex.startsWith("conic")) {
+      const g = ctx.createConicGradient ? ctx.createConicGradient(0, x + 18 * k, rowY) : null;
+      if (g) ["#EBA6B9", "#F2CF4A", "#5B8BD0", "#5E8A5A", "#EBA6B9"].forEach((h, i, a) => g.addColorStop(i / (a.length - 1), h));
+      ctx.fillStyle = g || "#EBA6B9";
+    } else ctx.fillStyle = col.hex;
+    ctx.beginPath(); ctx.arc(x + 18 * k, rowY, 18 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3 * k;
+    ctx.strokeStyle = T.ring || T.pill;
+    ctx.stroke();
+    x += 46 * k;
+  }
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = T.soft;
+  ctx.font = `600 ${22 * k}px ${sans}`;
+  ctx.fillText("montado no Vestí", W - 72 * k, rowY + 8 * k);
+
+  return output(c, type, quality);
 }
 
 export async function shareOrDownload(blob, filename, title) {

@@ -12,6 +12,7 @@ import TipPopup from "../components/TipPopup";
 import ClothingCard from "../components/ClothingCard";
 import { CATEGORIES, SLOTS, SLOT_LAYOUT, categoryById } from "../lib/constants";
 import { loadImage, renderLook } from "../lib/image";
+import { suggestLook, mainKey } from "../lib/suggest";
 
 const aspectCache = new Map();
 async function aspectOf(cloth) {
@@ -32,7 +33,6 @@ function fitToSlot(slot, aspect) {
 }
 
 const slotOf = (cloth) => categoryById(cloth?.category)?.slot;
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 export default function Creator() {
   const { id } = useParams();
@@ -51,6 +51,8 @@ export default function Creator() {
   const [newCat, setNewCat] = useState("");
   const [saving, setSaving] = useState(false);
   const boardRef = useRef();
+  const recent = useRef([]);
+  const [shuffleKey, setShuffleKey] = useState(0);
 
   const bySlot = useMemo(() => {
     const m = {};
@@ -99,20 +101,25 @@ export default function Creator() {
   const change = (slot, patch) => setItems((list) => list.map((i) => (i.slot === slot ? { ...i, ...patch } : i)));
 
   const randomize = async () => {
-    const hasSeparates = bySlot.top?.length && bySlot.bottom?.length;
-    const hasDress = bySlot.full?.length;
-    const chosen = [];
-    if (hasDress && (!hasSeparates || Math.random() < 0.35)) chosen.push(pick(bySlot.full));
-    else {
-      if (bySlot.top?.length) chosen.push(pick(bySlot.top));
-      if (bySlot.bottom?.length) chosen.push(pick(bySlot.bottom));
+    const current = items.map((i) => clothesById[i.clothId]).filter(Boolean);
+    const avoid = [mainKey(current), ...recent.current];
+    const { pieces, isNew } = suggestLook(clothes, { avoid });
+    if (!isNew) {
+      // já mostrou todas as combinações: recomeça o ciclo, sem repetir a atual
+      recent.current = [];
+      const again = suggestLook(clothes, { avoid: [mainKey(current)] });
+      if (!again.isNew) {
+        toast("Cadastre mais peças pra ter novas combinações 👀");
+        return;
+      }
+      pieces.splice(0, pieces.length, ...again.pieces);
     }
-    if (bySlot.shoes?.length) chosen.push(pick(bySlot.shoes));
-    if (bySlot.extra?.length && Math.random() < 0.5) chosen.push(pick(bySlot.extra));
+    recent.current = [mainKey(pieces), ...recent.current].slice(0, 30);
     let next = [];
-    for (const c of chosen) next = await placeCloth(c, next);
+    for (const c of pieces) next = await placeCloth(c, next);
     setItems(next);
     setSelected(null);
+    setShuffleKey((k) => k + 1);
     bump("randomUses");
   };
 
@@ -124,8 +131,8 @@ export default function Creator() {
         addLookCategory(newCat);
         category = newCat.trim();
       }
-      const preview = await renderLook(items, clothesById, { width: 600, type: "dataUrl", watermark: false });
-      const saved = saveOutfit({ id: editing?.id, name: name.trim() || "Look sem nome", category, items, preview });
+      const preview = await renderLook(items, clothesById, { width: 600, type: "dataUrl" });
+      const saved = saveOutfit({ id: editing?.id, name: name.trim() || "Look sem nome", category, items, preview, previewV: 2 });
       toast(editing ? "Look atualizado!" : "Look salvo! 💾");
       navigate(`/looks?ver=${saved.id}`, { replace: true });
     } catch (e) {
@@ -174,7 +181,7 @@ export default function Creator() {
       />
 
       <div className="mx-auto max-w-md px-5">
-        <OutfitCanvas items={items} clothesById={clothesById} selectedId={selected} onSelect={select} onChange={change} onRemove={removeSlot} boardRef={boardRef} />
+        <OutfitCanvas key={shuffleKey} items={items} clothesById={clothesById} selectedId={selected} onSelect={select} onChange={change} onRemove={removeSlot} boardRef={boardRef} />
         {items.length === 0 ? (
           <p className="mt-3 text-center text-sm text-ink-mute">Escolha as peças aqui embaixo ou toque em <b>Sortear</b> 🎲</p>
         ) : (

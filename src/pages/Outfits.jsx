@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Share2, Pencil, Trash2, Sparkles, Loader2 } from "lucide-react";
+import { Share2, Pencil, Trash2, Sparkles, Loader2, ArrowLeft, Download } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useToast } from "../components/Toast";
 import PageHeader from "../components/PageHeader";
@@ -9,7 +9,8 @@ import FilterBar from "../components/FilterBar";
 import EmptyState from "../components/EmptyState";
 import Sheet from "../components/Sheet";
 import TipPopup from "../components/TipPopup";
-import { renderLook, shareOrDownload } from "../lib/image";
+import { renderLook, renderShareCard, shareOrDownload, SHARE_THEMES } from "../lib/image";
+import { colorById } from "../lib/constants";
 
 function OutfitCard({ outfit, onClick }) {
   return (
@@ -25,7 +26,7 @@ function OutfitCard({ outfit, onClick }) {
 }
 
 export default function Outfits() {
-  const { outfits, clothesById, deleteOutfit, bump } = useStore();
+  const { outfits, clothesById, deleteOutfit, saveOutfit, bump } = useStore();
   const navigate = useNavigate();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -33,8 +34,34 @@ export default function Outfits() {
   const [confirm, setConfirm] = useState(false);
   const [sharing, setSharing] = useState(false);
 
-  const viewing = outfits.find((o) => o.id === params.get("ver"));
-  const close = () => { setConfirm(false); setParams({}, { replace: true }); };
+  const [viewId, setViewId] = useState(null);
+  // vindo do "Salvar look": abre o look recém-salvo e limpa o endereço
+  useEffect(() => {
+    const ver = params.get("ver");
+    if (ver) {
+      setParams({}, { replace: true });
+      setTimeout(() => setViewId(ver), 50);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const viewing = outfits.find((o) => o.id === viewId);
+
+  const upgrading = useRef(new Set());
+  // atualiza miniaturas antigas para o visual novo (uma vez por look)
+  useEffect(() => {
+    const old = outfits.filter((o) => o.previewV !== 2 && !upgrading.current.has(o.id));
+    if (!old.length) return;
+    old.forEach((o) => upgrading.current.add(o.id));
+    (async () => {
+      for (const o of old) {
+        try {
+          const preview = await renderLook(o.items, clothesById, { width: 600, type: "dataUrl" });
+          saveOutfit({ ...o, preview, previewV: 2 });
+        } catch {}
+      }
+    })();
+  }, [outfits, clothesById, saveOutfit]);
+  const close = () => { setConfirm(false); setShareMode(false); setViewId(null); };
 
   const options = useMemo(() => {
     const cats = [...new Set(outfits.map((o) => o.category).filter(Boolean))];
@@ -42,10 +69,25 @@ export default function Outfits() {
   }, [outfits]);
   const list = outfits.filter((o) => cat === "all" || o.category === cat);
 
+  const [shareMode, setShareMode] = useState(false);
+  const [theme, setTheme] = useState("creme");
+  const [cardPreview, setCardPreview] = useState(null);
+
+  // prévia do cartão sempre que muda o look ou o estilo
+  useEffect(() => {
+    if (!shareMode || !viewing) return;
+    let alive = true;
+    setCardPreview(null);
+    renderShareCard(viewing, clothesById, colorById, { theme, width: 540, type: "dataUrl", quality: 0.9 })
+      .then((url) => alive && setCardPreview(url))
+      .catch(console.error);
+    return () => { alive = false; };
+  }, [shareMode, theme, viewing, clothesById]);
+
   const share = async () => {
     setSharing(true);
     try {
-      const blob = await renderLook(viewing.items, clothesById, { width: 1080, type: "image/png" });
+      const blob = await renderShareCard(viewing, clothesById, colorById, { theme, width: 1080, type: "image/png" });
       const fname = `${viewing.name.normalize("NFD").replace(/[^\w]+/g, "-").toLowerCase() || "look"}.png`;
       const r = await shareOrDownload(blob, fname, viewing.name);
       if (r !== "cancelled") bump("exports");
@@ -70,7 +112,7 @@ export default function Outfits() {
             {options.length > 2 && <FilterBar options={options} value={cat} onChange={setCat} className="mb-4" />}
             <motion.div layout className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <AnimatePresence mode="popLayout">
-                {list.map((o) => <OutfitCard key={o.id} outfit={o} onClick={() => setParams({ ver: o.id })} />)}
+                {list.map((o) => <OutfitCard key={o.id} outfit={o} onClick={() => setViewId(o.id)} />)}
               </AnimatePresence>
             </motion.div>
           </>
@@ -78,9 +120,38 @@ export default function Outfits() {
       </div>
 
       <Sheet open={Boolean(viewing)} onClose={close} label="Ver look">
-        {viewing && (
+        {viewing && shareMode && (
           <div className="px-5 pb-6">
-            <img src={viewing.preview} alt={viewing.name} className="mx-auto mt-2 aspect-[3/4] w-full max-w-xs rounded-[24px] object-cover ring-1 ring-line" />
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShareMode(false)} aria-label="Voltar" className="-ml-2 grid size-10 place-items-center rounded-full hover:bg-cream"><ArrowLeft size={20} /></button>
+              <h2 className="font-display text-2xl font-semibold">Escolha o estilo</h2>
+            </div>
+            <div className="mx-auto mt-3 aspect-[4/5] w-full max-w-[300px] overflow-hidden rounded-[20px] bg-cream shadow-lg ring-1 ring-line">
+              {cardPreview ? (
+                <motion.img key={cardPreview.slice(-30)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} src={cardPreview} alt="Prévia da imagem" className="h-full w-full object-cover" />
+              ) : (
+                <div className="grid h-full place-items-center"><Loader2 className="animate-spin text-ink-mute" /></div>
+              )}
+            </div>
+            <div className="no-scrollbar -mx-5 mt-5 flex justify-center gap-3 overflow-x-auto px-5">
+              {SHARE_THEMES.map((t) => (
+                <button key={t.id} onClick={() => setTheme(t.id)} className="flex shrink-0 flex-col items-center gap-1.5" aria-pressed={theme === t.id}>
+                  <span className={`grid size-12 place-items-center rounded-full ring-offset-2 ring-offset-paper ${theme === t.id ? "ring-2 ring-ink" : "ring-1 ring-ink/15"}`} style={{ background: t.bg }}>
+                    <span className="size-5 rounded-full" style={{ background: t.blob }} />
+                  </span>
+                  <span className={`text-[11px] ${theme === t.id ? "font-bold" : "text-ink-mute"}`}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={share} disabled={sharing} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 font-semibold text-paper">
+              {sharing ? <Loader2 size={18} className="animate-spin" /> : navigator.canShare ? <Share2 size={18} /> : <Download size={18} />}
+              {navigator.canShare ? "Compartilhar" : "Baixar imagem"}
+            </button>
+          </div>
+        )}
+        {viewing && !shareMode && (
+          <div className="px-5 pb-6">
+            <img src={viewing.preview} alt={viewing.name} className="mx-auto aspect-[3/4] w-full max-w-xs rounded-[24px] object-cover ring-1 ring-line" />
             <div className="mt-4 text-center">
               <h2 className="font-display text-2xl font-semibold">{viewing.name}</h2>
               {viewing.category && <p className="text-sm text-ink-mute">{viewing.category}</p>}
@@ -96,8 +167,8 @@ export default function Outfits() {
               </div>
             ) : (
               <div className="mt-5 grid gap-2">
-                <button onClick={share} disabled={sharing} className="flex items-center justify-center gap-2 rounded-full bg-ink py-3.5 font-semibold text-paper">
-                  {sharing ? <Loader2 size={18} className="animate-spin" /> : <Share2 size={18} />} Compartilhar imagem
+                <button onClick={() => setShareMode(true)} className="flex items-center justify-center gap-2 rounded-full bg-ink py-3.5 font-semibold text-paper">
+                  <Share2 size={18} /> Compartilhar imagem
                 </button>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => navigate(`/criar-look/${viewing.id}`)} className="flex items-center justify-center gap-2 rounded-full bg-white py-3.5 font-semibold ring-1 ring-line"><Pencil size={17} /> Editar</button>
