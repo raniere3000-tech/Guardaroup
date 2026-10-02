@@ -54,7 +54,7 @@ export async function prepareInput(file) {
 export async function removeBackground(blob, onProgress) {
   const { removeBackground: run } = await import("@imgly/background-removal");
   return run(blob, {
-    model: "isnet_quint8",
+    model: "isnet_fp16", // mais preciso que o quint8 (detalhes como listras e estampas)
     output: { format: "image/png" },
     progress: (key, current, total) => {
       if (!onProgress) return;
@@ -64,9 +64,69 @@ export async function removeBackground(blob, onProgress) {
   });
 }
 
+/**
+ * Fecha "buraquinhos" que o recorte deixa dentro da peça (ex.: partes brancas
+ * de estampas), devolvendo os pixels da foto original. Buracos grandes e
+ * tudo que encosta no fundo de fora ficam como estão.
+ */
+export async function fillSmallHoles(cutSrc, originalSrc, { maxHoleFrac = 0.025 } = {}) {
+  const [cut, orig] = await Promise.all([loadImage(cutSrc), loadImage(originalSrc)]);
+  const w = cut.naturalWidth, h = cut.naturalHeight;
+  const c = canvasFor(w, h);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(cut, 0, 0);
+  const img = ctx.getImageData(0, 0, w, h);
+  const o = canvasFor(w, h).getContext("2d", { willReadFrequently: true });
+  o.drawImage(orig, 0, 0, w, h);
+  const od = o.getImageData(0, 0, w, h).data;
+  const d = img.data;
+  const T = 60;
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  const flood = (start, collect) => {
+    let sp = 0, n = 0;
+    stack[sp++] = start; seen[start] = 1;
+    while (sp) {
+      const i = stack[--sp];
+      if (collect) collect.push(i);
+      n++;
+      const x = i % w, y = (i / w) | 0;
+      const nb = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1];
+      for (const j of nb) if (j >= 0 && !seen[j] && d[j * 4 + 3] < T) { seen[j] = 1; stack[sp++] = j; }
+    }
+    return n;
+  };
+  // fundo de fora: tudo transparente ligado à borda
+  for (let x = 0; x < w; x++) for (const y of [0, h - 1]) { const i = y * w + x; if (!seen[i] && d[i * 4 + 3] < T) flood(i); }
+  for (let y = 0; y < h; y++) for (const x of [0, w - 1]) { const i = y * w + x; if (!seen[i] && d[i * 4 + 3] < T) flood(i); }
+  const limit = w * h * maxHoleFrac;
+  let changed = false;
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i] || d[i * 4 + 3] >= T) continue;
+    const comp = [];
+    flood(i, comp);
+    if (comp.length <= limit) {
+      changed = true;
+      for (const k of comp) { const p = k * 4; d[p] = od[p]; d[p + 1] = od[p + 1]; d[p + 2] = od[p + 2]; d[p + 3] = 255; }
+    }
+  }
+  if (!changed) return typeof cutSrc === "string" ? cutSrc : c.toDataURL("image/png");
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL("image/png");
+}
+
+/** Converte qualquer imagem (blob/dataURL) em dataURL leve, sem cortar. */
+export async function toStoredDataUrl(src) {
+  return (await finalizeImage(src, { trim: false })).dataUrl;
+}
+
 /** Corta as sobras transparentes e salva em formato leve que mantém a transparência. */
 export async function finalizeImage(blob, { trim = true } = {}) {
   const img = await loadImage(blob);
+  return finalizeFromImage(img, { trim });
+}
+
+async function finalizeFromImage(img, { trim }) {
   let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
 
   if (trim) {

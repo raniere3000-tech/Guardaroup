@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Image as ImageIcon, RefreshCw, ChevronDown, Wand2, Loader2, Trash2 } from "lucide-react";
+import { Camera, Image as ImageIcon, RefreshCw, ChevronDown, Wand2, Loader2, Trash2, Paintbrush } from "lucide-react";
 import { CATEGORIES, COLORS, OCCASIONS, SEASONS } from "../lib/constants";
-import { prepareInput, removeBackground, finalizeImage } from "../lib/image";
+import { prepareInput, removeBackground, finalizeImage, fillSmallHoles, toStoredDataUrl } from "../lib/image";
+import CutoutEditor from "./CutoutEditor";
 import { useStore } from "../store/useStore";
 import { useToast } from "./Toast";
 
@@ -32,8 +33,13 @@ export default function UploadForm({ initial, onSave, onDelete }) {
   const cameraRef = useRef();
   const galleryRef = useRef();
 
-  const [images, setImages] = useState(initial ? { clean: initial.image, original: null } : null);
-  const [useClean, setUseClean] = useState(true);
+  // original = foto inteira; cut = recorte sem fundo (mesmo tamanho da original)
+  const [src, setSrc] = useState(() =>
+    initial ? { original: initial.original || initial.image, cut: initial.cut || null } : null
+  );
+  const [useClean, setUseClean] = useState(Boolean(initial?.cut) && initial?.bg !== "kept");
+  const [cleanPreview, setCleanPreview] = useState(initial?.cut ? initial.image : null);
+  const [editing, setEditing] = useState(false);
   const [processing, setProcessing] = useState(null); // { preview, stage, pct }
   const [category, setCategory] = useState(initial?.category || "");
   const [color, setColor] = useState(initial?.color || "");
@@ -42,6 +48,22 @@ export default function UploadForm({ initial, onSave, onDelete }) {
   const [season, setSeason] = useState(initial?.season || "");
   const [moreOpen, setMoreOpen] = useState(Boolean(initial?.name || initial?.occasions?.length || initial?.season));
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false); // imagem mudou nesta edição
+
+  // prévia recortada (sem sobras) sempre que o recorte muda
+  useEffect(() => {
+    if (!src?.cut || !dirty) return;
+    let alive = true;
+    finalizeImage(src.cut, { trim: true }).then((r) => alive && setCleanPreview(r.dataUrl));
+    return () => { alive = false; };
+  }, [src?.cut, dirty]);
+
+  const cutFrom = async (input, original) => {
+    if (typeof input === "string") input = await (await fetch(input)).blob();
+    const raw = await removeBackground(input, (p) => setProcessing((s) => s && { ...s, ...p }));
+    const rawUrl = await toStoredDataUrl(raw);
+    return toStoredDataUrl(await fillSmallHoles(rawUrl, original));
+  };
 
   const handleFile = async (file) => {
     if (!file) return;
@@ -49,17 +71,17 @@ export default function UploadForm({ initial, onSave, onDelete }) {
     setProcessing({ preview, stage: "prepare", pct: 0 });
     try {
       const input = await prepareInput(file);
-      const original = await finalizeImage(input, { trim: false });
-      let clean = null;
+      const original = await toStoredDataUrl(input);
+      let cut = null;
       try {
-        const cut = await removeBackground(input, (p) => setProcessing((s) => s && { ...s, ...p }));
-        clean = await finalizeImage(cut, { trim: true });
+        cut = await cutFrom(input, original);
       } catch (err) {
         console.error(err);
         toast("Não deu pra tirar o fundo. Vou usar a foto original.", "error");
       }
-      setImages({ clean: clean?.dataUrl || null, original: original.dataUrl });
-      setUseClean(Boolean(clean));
+      setSrc({ original, cut });
+      setUseClean(Boolean(cut));
+      setDirty(true);
     } catch (err) {
       console.error(err);
       toast("Não consegui abrir essa foto. Tenta outra?", "error");
@@ -69,14 +91,37 @@ export default function UploadForm({ initial, onSave, onDelete }) {
     }
   };
 
-  const currentImage = images ? (useClean && images.clean ? images.clean : images.original || images.clean) : null;
+  // peça já salva com fundo: tirar o fundo agora
+  const removeNow = async () => {
+    setProcessing({ preview: src.original, stage: "prepare", pct: 0, keep: true });
+    try {
+      const cut = await cutFrom(src.original, src.original);
+      setSrc((s) => ({ ...s, cut }));
+      setUseClean(true);
+      setDirty(true);
+    } catch (err) {
+      console.error(err);
+      toast("Não deu pra tirar o fundo agora. Tenta de novo?", "error");
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const currentImage = src ? (useClean && src.cut ? cleanPreview : src.original) : null;
   const canSave = currentImage && category && color && !processing && !saving;
 
   const submit = async () => {
     if (!canSave) return;
     setSaving(true);
-    if (images.original) bump(useClean && images.clean ? "bgRemoved" : "bgKept");
-    await onSave({ image: currentImage, category, color, name: name.trim(), occasions, season });
+    const clean = useClean && src.cut;
+    if (dirty && !initial) bump(clean ? "bgRemoved" : "bgKept");
+    await onSave({
+      image: clean ? cleanPreview : src.original,
+      original: src.original,
+      cut: src.cut,
+      bg: clean ? "removed" : "kept",
+      category, color, name: name.trim(), occasions, season,
+    });
     setSaving(false);
   };
 
@@ -119,7 +164,7 @@ export default function UploadForm({ initial, onSave, onDelete }) {
                     <RefreshCw size={15} /> Trocar
                   </button>
                 </div>
-                {images?.clean && images?.original && (
+                {src?.cut && (
                   <div className="mt-3 grid grid-cols-2 gap-1 rounded-full bg-white p-1 ring-1 ring-line">
                     {[[true, "Sem fundo"], [false, "Manter fundo"]].map(([v, label]) => (
                       <button key={label} onClick={() => setUseClean(v)} className={`relative rounded-full py-2 text-sm font-semibold ${useClean === v ? "text-paper" : "text-ink-soft"}`}>
@@ -128,6 +173,17 @@ export default function UploadForm({ initial, onSave, onDelete }) {
                       </button>
                     ))}
                   </div>
+                )}
+                {src?.cut && useClean && (
+                  <button onClick={() => setEditing(true)} className="mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-cream py-3 text-sm font-semibold">
+                    <Paintbrush size={16} /> Ajustar recorte
+                    <span className="font-normal text-ink-soft">· sumiu algum pedaço?</span>
+                  </button>
+                )}
+                {src && !src.cut && (
+                  <button onClick={removeNow} className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-cream py-3 text-sm font-semibold">
+                    <Wand2 size={16} /> Tirar o fundo
+                  </button>
                 )}
               </motion.div>
             ) : (
@@ -209,6 +265,23 @@ export default function UploadForm({ initial, onSave, onDelete }) {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {editing && src?.cut && (
+          <CutoutEditor
+            original={src.original}
+            cut={src.cut}
+            onCancel={() => setEditing(false)}
+            onDone={async (edited) => {
+              const cut = await toStoredDataUrl(edited);
+              setSrc((s) => ({ ...s, cut }));
+              setDirty(true);
+              setEditing(false);
+              toast("Recorte ajustado!");
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* SALVAR */}
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-paper via-paper to-paper/0 px-5 pt-8 pb-5 pb-safe [&>*]:pointer-events-auto">
