@@ -9,6 +9,8 @@ const BUILD = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo"
 export default defineConfig({
   base: "./",
   define: { __BUILD__: JSON.stringify(BUILD) },
+  // duas páginas: o app (index.html) e o laboratório (lab.html)
+  build: { rollupOptions: { input: { main: "index.html", lab: "lab.html" } } },
   plugins: [
     react(),
     tailwindcss(),
@@ -34,6 +36,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        navigateFallbackDenylist: [/lab\.html/],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         runtimeCaching: [
           {
